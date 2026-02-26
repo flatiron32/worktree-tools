@@ -20,7 +20,7 @@ REPO_ROOT="$WORKSPACE/source-repo"
 "$ROOT/bin/wt-init" "$SRC" "$WORKSPACE" >/dev/null
 
 set +e
-out="$($ROOT/bin/wt-create STEPEXIT-14 --repo "$REPO_ROOT" 2>/dev/null)"
+out="$($ROOT/bin/wt-create feature-123 --repo "$REPO_ROOT" 2>/dev/null)"
 rc=$?
 set -e
 
@@ -29,11 +29,11 @@ if [[ $rc -ne 0 ]]; then
   exit 1
 fi
 
-expected="$REPO_ROOT/branches/STEPEXIT-14"
+expected="$REPO_ROOT/branches/feature-123"
 [[ "$out" == "$expected" ]] || { echo "FAIL: wt-create should output $expected, got: $out"; exit 1; }
 [[ -d "$expected" ]] || { echo "FAIL: missing branch worktree dir"; exit 1; }
 
 branch="$(git -C "$expected" rev-parse --abbrev-ref HEAD)"
-[[ "$branch" == "STEPEXIT-14" ]] || { echo "FAIL: expected branch STEPEXIT-14, got: $branch"; exit 1; }
+[[ "$branch" == "feature-123" ]] || { echo "FAIL: expected branch feature-123, got: $branch"; exit 1; }
 
 echo "PASS: wt-create created branch worktree"
