@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/../lib/common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  wt-init <repo-url> [workspace-dir] [--repo-name <name>] [-h|--help]
+  wt-init <repo-url> [workspace-dir] [--repo-name <name>] [--yes] [-h|--help]
 
 Creates a repo container with this layout:
   <workspace>/<repo_name>/bare.git
@@ -24,6 +24,7 @@ EOF
 REPO_URL=""
 WORKSPACE_DIR="."
 REPO_NAME=""
+YES=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo-name requires a value" >&2; exit 2; }
       REPO_NAME="$2"
       shift 2
+      ;;
+    --yes)
+      YES=true
+      shift
       ;;
     -*)
       echo "Error: unknown option '$1'" >&2
@@ -69,8 +74,43 @@ BARE_DIR="$REPO_ROOT/bare.git"
 MAIN_DIR="$REPO_ROOT/main"
 BRANCHES_DIR="$REPO_ROOT/branches"
 
+is_clean_existing_container() {
+  [[ -d "$BARE_DIR" && -d "$MAIN_DIR" && -d "$BRANCHES_DIR" ]] || return 1
+  [[ -z "$(git -C "$MAIN_DIR" status --porcelain 2>/dev/null || true)" ]] || return 1
+  [[ -z "$(find "$BRANCHES_DIR" -mindepth 1 -print -quit 2>/dev/null || true)" ]] || return 1
+  local extra_count
+  extra_count="$(find "$REPO_ROOT" -mindepth 1 -maxdepth 1 ! -name bare.git ! -name main ! -name branches | wc -l | tr -d ' ')"
+  [[ "$extra_count" == "0" ]] || return 1
+  local non_main_count
+  non_main_count="$(
+    git -C "$BARE_DIR" worktree list --porcelain \
+      | awk '
+          BEGIN { bare=0; detached=0; branch="" }
+          /^branch /   { branch=$2; sub("refs/heads/","",branch) }
+          /^bare$/     { bare=1 }
+          /^detached$/ { detached=1 }
+          /^$/ {
+            if (!bare && (detached || branch != "main")) count++
+            bare=0; detached=0; branch=""
+          }
+          END { print count+0 }
+        '
+  )"
+  [[ "$non_main_count" == "0" ]]
+}
+
 if [[ -e "$REPO_ROOT" ]]; then
-  die "Target already exists: $REPO_ROOT"
+  if ! is_clean_existing_container; then
+    die "Target already exists and is not clean/safe to replace: $REPO_ROOT"
+  fi
+  if [[ "$YES" != true ]]; then
+    if [[ ! -t 0 ]]; then
+      die "Target already exists and is clean. Re-run with --yes to replace: $REPO_ROOT"
+    fi
+    read -r -p "Replace existing clean repo container at $REPO_ROOT? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || die "Aborted."
+  fi
+  rm -rf "$REPO_ROOT"
 fi
 
 mkdir -p "$REPO_ROOT"

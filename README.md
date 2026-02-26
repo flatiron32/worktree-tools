@@ -22,12 +22,14 @@ Repository-agnostic worktree CLI utilities.
 
 ### wt-init
 ```bash
-wt-init <repo-url> [workspace-dir]
+wt-init <repo-url> [workspace-dir] [--repo-name <name>] [--yes]
 ```
 Creates:
 - `<workspace>/<repo_name>/bare.git`
 - `<workspace>/<repo_name>/main`
 - `<workspace>/<repo_name>/branches`
+
+If the target repo container already exists and is clean, `wt-init` can replace it with `--yes` (or via interactive confirmation in a TTY session).
 
 ### wt-create
 ```bash
