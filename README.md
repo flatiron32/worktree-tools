@@ -65,9 +65,15 @@ wt-remove <branch-name|path> [--repo <repo-root>] [--dry-run] [--yes] [--delete-
 ```bash
 wt-cleanup [--repo <repo-root>] [--dry-run] [--yes]
 ```
+Removes merged feature worktrees and keeps dirty merged worktrees in place for manual review.
 
 ## Development
 
 - Use small conventional commits (for example: `feat: add wt-sync dry-run mode`, `fix: resolve wt-init relative path`).
 - Prefer one focused change per commit.
 - Run test scripts in `tests/` before committing.
+
+## Test Coverage Notes
+
+- `wt-remove` protects the `main` worktree.
+- `wt-cleanup` skips dirty merged worktrees, removes clean merged worktrees, and exits non-zero when any dirty merged worktree is skipped.

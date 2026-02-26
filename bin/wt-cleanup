@@ -79,10 +79,21 @@ fi
 
 confirm_or_exit "Remove ${#CANDIDATES[@]} merged worktree(s)?" "$YES"
 
+SKIPPED=()
 for row in "${CANDIDATES[@]}"; do
   p="${row%%$'\t'*}"
   b="${row#*$'\t'}"
+  if [[ -n "$(git -C "$p" status --porcelain 2>/dev/null || true)" ]]; then
+    log_warn "Skipping dirty worktree: $p ($b)"
+    SKIPPED+=("$p ($b)")
+    continue
+  fi
   git -C "$BARE_DIR" worktree remove "$p"
   git -C "$BARE_DIR" branch -d "$b" >/dev/null || true
   log_success "Removed: $p ($b)"
 done
+
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+  log_warn "Skipped ${#SKIPPED[@]} dirty merged worktree(s)"
+  exit 1
+fi
