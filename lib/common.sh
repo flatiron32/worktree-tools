@@ -24,3 +24,17 @@ log_error() { printf "${RED}✖ ${RESET}%s\n" "$*" >&2; }
 die() { log_error "$*"; exit 1; }
 
 require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
+
+confirm_or_exit() {
+  local prompt="$1"
+  local yes_flag="$2"
+  if [[ "$yes_flag" == true ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    die "$prompt (requires --yes in non-interactive mode)"
+  fi
+  local answer
+  read -r -p "$prompt [y/N] " answer
+  [[ "$answer" =~ ^[Yy]$ ]] || die "Aborted."
+}

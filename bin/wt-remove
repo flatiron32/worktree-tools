@@ -1,4 +1,107 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "This command is not implemented yet" >&2
-exit 1
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/repo.sh"
+
+usage() {
+  cat <<'EOF2'
+Usage:
+  wt-remove <branch-name|path> [--repo <path>] [--dry-run] [--yes] [--delete-branch]
+EOF2
+}
+
+TARGET=""
+REPO_ARG=""
+DRY_RUN=false
+YES=false
+DELETE_BRANCH=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --repo)
+      [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo requires a value" >&2; exit 2; }
+      REPO_ARG="$2"; shift 2 ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --yes) YES=true; shift ;;
+    --delete-branch) DELETE_BRANCH=true; shift ;;
+    -*) echo "Error: unknown option '$1'" >&2; exit 2 ;;
+    *)
+      [[ -z "$TARGET" ]] || { echo "Error: unexpected argument '$1'" >&2; exit 2; }
+      TARGET="$1"; shift ;;
+  esac
+done
+
+[[ -n "$TARGET" ]] || { usage >&2; exit 2; }
+require_command git
+
+REPO_ROOT="$(resolve_repo_root "$REPO_ARG")"
+BARE_DIR="$(bare_repo_dir "$REPO_ROOT")"
+
+if [[ -d "$TARGET" ]]; then
+  TARGET="$(cd "$TARGET" && pwd -P)"
+elif [[ "$TARGET" == "main" ]]; then
+  TARGET="$(main_worktree_dir "$REPO_ROOT")"
+else
+  TARGET="$(branches_dir "$REPO_ROOT")/$TARGET"
+fi
+[[ -d "$TARGET" ]] || die "Worktree not found: $TARGET"
+TARGET="$(cd "$TARGET" && pwd -P)"
+
+BRANCH=""
+MATCHED=false
+while IFS=$'\t' read -r p b; do
+  p="$(cd "$p" 2>/dev/null && pwd -P || true)"
+  [[ -n "$p" ]] || continue
+  if [[ "$p" == "$TARGET" ]]; then
+    MATCHED=true
+    BRANCH="$b"
+    break
+  fi
+done < <(git -C "$BARE_DIR" worktree list --porcelain | awk '
+  BEGIN { bare=0; detached=0; branch=""; head=""; path="" }
+  /^worktree / { path=substr($0, length("worktree ")+1) }
+  /^HEAD / { head=$2 }
+  /^branch / { branch=$2; sub("refs/heads/","",branch) }
+  /^bare$/ { bare=1 }
+  /^detached$/ { detached=1 }
+  /^$/ {
+    if (!bare && path != "") {
+      b = (detached ? "detached:" substr(head,1,8) : branch)
+      printf "%s\t%s\n", path, b
+    }
+    bare=0; detached=0; branch=""; head=""; path=""
+  }
+  END {
+    if (!bare && path != "") {
+      b = (detached ? "detached:" substr(head,1,8) : branch)
+      printf "%s\t%s\n", path, b
+    }
+  }
+')
+
+$MATCHED || die "Not a registered worktree: $TARGET"
+[[ "$BRANCH" != "main" ]] || die "Refusing to remove main worktree"
+
+if [[ "$DRY_RUN" == true ]]; then
+  log_info "Dry-run: would remove $TARGET ($BRANCH)"
+  [[ "$DELETE_BRANCH" == true ]] && log_info "Dry-run: would delete local branch $BRANCH"
+  exit 0
+fi
+
+confirm_or_exit "Remove worktree $TARGET?" "$YES"
+git -C "$BARE_DIR" worktree remove "$TARGET"
+log_success "Removed worktree: $TARGET"
+
+if [[ "$DELETE_BRANCH" == true ]] && [[ "$BRANCH" != detached:* ]]; then
+  if git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    git -C "$BARE_DIR" branch -d "$BRANCH" >/dev/null || log_warn "Could not delete branch: $BRANCH"
+  fi
+fi

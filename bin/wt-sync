@@ -1,4 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "This command is not implemented yet" >&2
-exit 1
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/repo.sh"
+
+usage() {
+  cat <<'EOF2'
+Usage:
+  wt-sync [--repo <path>] [--rebase] [--dry-run] [--yes]
+EOF2
+}
+
+REPO_ARG=""
+DO_REBASE=false
+DRY_RUN=false
+YES=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --repo)
+      [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo requires a value" >&2; exit 2; }
+      REPO_ARG="$2"; shift 2 ;;
+    --rebase) DO_REBASE=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --yes) YES=true; shift ;;
+    --no-color) export NO_COLOR=1; shift ;;
+    -*) echo "Error: unknown option '$1'" >&2; exit 2 ;;
+    *) echo "Error: unexpected argument '$1'" >&2; exit 2 ;;
+  esac
+done
+
+require_command git
+REPO_ROOT="$(resolve_repo_root "$REPO_ARG")"
+BARE_DIR="$(bare_repo_dir "$REPO_ROOT")"
+MAIN_DIR="$(main_worktree_dir "$REPO_ROOT")"
+[[ -d "$MAIN_DIR" ]] || die "Main worktree not found: $MAIN_DIR"
+
+if [[ "$DO_REBASE" == true && "$DRY_RUN" == false ]]; then
+  confirm_or_exit "Rebase all clean feature worktrees onto main?" "$YES"
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+  log_info "Dry-run: would fetch origin and fast-forward main"
+  [[ "$DO_REBASE" == true ]] && log_info "Dry-run: would rebase clean feature worktrees onto main"
+  exit 0
+fi
+
+git -C "$BARE_DIR" fetch origin >/dev/null
+if ! git -C "$MAIN_DIR" pull --ff-only origin main >/dev/null; then
+  die "Could not fast-forward main"
+fi
+log_success "Synced main"
+
+if [[ "$DO_REBASE" == false ]]; then
+  exit 0
+fi
+
+while IFS=$'\t' read -r p b; do
+  p="$(cd "$p" 2>/dev/null && pwd -P || true)"
+  [[ -n "$p" && "$b" != "main" && "$b" != detached:* ]] || continue
+  if [[ -n "$(git -C "$p" status --porcelain 2>/dev/null || true)" ]]; then
+    log_warn "Skipping dirty worktree: $p"
+    continue
+  fi
+  if git -C "$p" rebase main >/dev/null; then
+    log_success "Rebased: $b"
+  else
+    log_warn "Rebase conflict: $p"
+  fi
+done < <(git -C "$BARE_DIR" worktree list --porcelain | awk '
+  BEGIN { bare=0; detached=0; branch=""; head=""; path="" }
+  /^worktree / { path=substr($0, length("worktree ")+1) }
+  /^HEAD / { head=$2 }
+  /^branch / { branch=$2; sub("refs/heads/","",branch) }
+  /^bare$/ { bare=1 }
+  /^detached$/ { detached=1 }
+  /^$/ {
+    if (!bare && path != "") {
+      b = (detached ? "detached:" substr(head,1,8) : branch)
+      printf "%s\t%s\n", path, b
+    }
+    bare=0; detached=0; branch=""; head=""; path=""
+  }
+  END {
+    if (!bare && path != "") {
+      b = (detached ? "detached:" substr(head,1,8) : branch)
+      printf "%s\t%s\n", path, b
+    }
+  }
+')

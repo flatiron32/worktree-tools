@@ -18,12 +18,6 @@ Repository-agnostic worktree CLI utilities.
 ./install.sh
 ```
 
-## Development
-
-- Use small conventional commits (for example: `feat: add wt-sync dry-run mode`, `fix: resolve wt-init relative path`).
-- Prefer one focused change per commit.
-- Run test scripts in `tests/` before committing.
-
 ## Current Implemented Commands
 
 ### wt-init
@@ -56,3 +50,24 @@ wt-list [--repo <repo-root>] [--json]
 ```bash
 wt-status [--repo <repo-root>] [--json]
 ```
+
+### wt-sync
+```bash
+wt-sync [--repo <repo-root>] [--rebase] [--dry-run] [--yes]
+```
+
+### wt-remove
+```bash
+wt-remove <branch-name|path> [--repo <repo-root>] [--dry-run] [--yes] [--delete-branch]
+```
+
+### wt-cleanup
+```bash
+wt-cleanup [--repo <repo-root>] [--dry-run] [--yes]
+```
+
+## Development
+
+- Use small conventional commits (for example: `feat: add wt-sync dry-run mode`, `fix: resolve wt-init relative path`).
+- Prefer one focused change per commit.
+- Run test scripts in `tests/` before committing.
