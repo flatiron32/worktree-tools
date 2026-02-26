@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  wt-init <repo-url> [workspace-dir] [--repo-name <name>] [-h|--help]
+
+Creates a repo container with this layout:
+  <workspace>/<repo_name>/bare.git
+  <workspace>/<repo_name>/main
+  <workspace>/<repo_name>/branches
+EOF
+}
+
+REPO_URL=""
+WORKSPACE_DIR="."
+REPO_NAME=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --repo-name)
+      [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo-name requires a value" >&2; exit 2; }
+      REPO_NAME="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Error: unknown option '$1'" >&2
+      exit 2
+      ;;
+    *)
+      if [[ -z "$REPO_URL" ]]; then
+        REPO_URL="$1"
+      elif [[ "$WORKSPACE_DIR" == "." ]]; then
+        WORKSPACE_DIR="$1"
+      else
+        echo "Error: unexpected argument '$1'" >&2
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$REPO_URL" ]] || { usage >&2; exit 2; }
+require_command git
+[[ -d "$WORKSPACE_DIR" ]] || die "Workspace directory does not exist: $WORKSPACE_DIR"
+WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd -P)"
+
+clean_url="${REPO_URL%%[\?#]*}"
+clean_url="${clean_url%/}"
+derived_repo_name="$(basename "$clean_url" | sed 's/\.git$//')"
+repo_name="${REPO_NAME:-$derived_repo_name}"
+
+REPO_ROOT="$WORKSPACE_DIR/$repo_name"
+BARE_DIR="$REPO_ROOT/bare.git"
+MAIN_DIR="$REPO_ROOT/main"
+BRANCHES_DIR="$REPO_ROOT/branches"
+
+if [[ -e "$REPO_ROOT" ]]; then
+  die "Target already exists: $REPO_ROOT"
+fi
+
+mkdir -p "$REPO_ROOT"
+log_info "Cloning bare repository to $BARE_DIR"
+git clone --bare "$REPO_URL" "$BARE_DIR" >/dev/null
+
+if ! git -C "$BARE_DIR" config --get-all remote.origin.fetch | grep -q 'refs/heads'; then
+  git -C "$BARE_DIR" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+fi
+
+default_branch="$(git -C "$BARE_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)"
+default_branch="${default_branch:-main}"
+
+mkdir -p "$BRANCHES_DIR"
+log_info "Creating main worktree from branch '$default_branch'"
+git -C "$BARE_DIR" worktree add "$MAIN_DIR" "$default_branch" >/dev/null
+
+log_success "Initialized: $REPO_ROOT"
+echo "$REPO_ROOT"

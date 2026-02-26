@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/repo.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  wt-switch [branch-name|path] [--repo <path>] [-h|--help]
+
+Prints the resolved worktree path for cd wrappers.
+EOF
+}
+
+TARGET=""
+REPO_ARG=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --repo)
+      [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo requires a value" >&2; exit 2; }
+      REPO_ARG="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Error: unknown option '$1'" >&2
+      exit 2
+      ;;
+    *)
+      if [[ -z "$TARGET" ]]; then
+        TARGET="$1"
+      else
+        echo "Error: unexpected argument '$1'" >&2
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+REPO_ROOT="$(resolve_repo_root "$REPO_ARG")"
+if [[ -z "$TARGET" ]]; then
+  TARGET="$(main_worktree_dir "$REPO_ROOT")"
+fi
+
+if [[ ! -d "$TARGET" ]]; then
+  CANDIDATE_MAIN="$(main_worktree_dir "$REPO_ROOT")"
+  CANDIDATE_BRANCH="$(branches_dir "$REPO_ROOT")/$TARGET"
+  if [[ "$TARGET" == "main" && -d "$CANDIDATE_MAIN" ]]; then
+    TARGET="$CANDIDATE_MAIN"
+  elif [[ -d "$CANDIDATE_BRANCH" ]]; then
+    TARGET="$CANDIDATE_BRANCH"
+  elif [[ -d "$REPO_ROOT/$TARGET" ]]; then
+    TARGET="$REPO_ROOT/$TARGET"
+  else
+    die "Worktree not found: $TARGET"
+  fi
+fi
+
+if [[ -d "$TARGET" ]]; then
+  TARGET="$(cd "$TARGET" && pwd -P)"
+else
+  die "Worktree not found: $TARGET"
+fi
+
+MATCHED=false
+while IFS= read -r p; do
+  p="$(cd "$p" 2>/dev/null && pwd -P || true)"
+  [[ "$p" == "$TARGET" ]] && MATCHED=true && break
+done < <(git -C "$(bare_repo_dir "$REPO_ROOT")" worktree list --porcelain | awk '/^worktree / {print substr($0,10)}')
+
+$MATCHED || die "Not a registered worktree: $TARGET"
+echo "$TARGET"

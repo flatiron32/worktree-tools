@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$LINK_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/repo.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  wt-create <branch-name> [--repo <path>] [-h|--help]
+
+Creates a worktree at:
+  <repo_root>/branches/<branch-name>
+EOF
+}
+
+BRANCH_NAME=""
+REPO_ARG=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --repo)
+      [[ $# -ge 2 && "${2:-}" != -* ]] || { echo "Error: --repo requires a value" >&2; exit 2; }
+      REPO_ARG="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Error: unknown option '$1'" >&2
+      exit 2
+      ;;
+    *)
+      if [[ -z "$BRANCH_NAME" ]]; then
+        BRANCH_NAME="$1"
+      else
+        echo "Error: unexpected argument '$1'" >&2
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$BRANCH_NAME" ]] || { usage >&2; exit 2; }
+require_command git
+
+REPO_ROOT="$(resolve_repo_root "$REPO_ARG")"
+BARE_DIR="$(bare_repo_dir "$REPO_ROOT")"
+MAIN_DIR="$(main_worktree_dir "$REPO_ROOT")"
+BRANCHES_DIR="$(branches_dir "$REPO_ROOT")"
+WORKTREE_DIR="$BRANCHES_DIR/$BRANCH_NAME"
+
+[[ -e "$MAIN_DIR/.git" ]] || die "Main worktree missing: $MAIN_DIR"
+[[ ! -e "$WORKTREE_DIR" ]] || die "Worktree path already exists: $WORKTREE_DIR"
+if git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+  die "Branch already exists: $BRANCH_NAME"
+fi
+
+default_branch="$(git -C "$MAIN_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+default_branch="${default_branch:-main}"
+
+mkdir -p "$(dirname "$WORKTREE_DIR")"
+git -C "$BARE_DIR" worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" "$default_branch" >/dev/null
+echo "$WORKTREE_DIR"
