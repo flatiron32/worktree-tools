@@ -23,3 +23,11 @@ case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "warning: $BIN_DIR is not on PATH" ;;
 esac
+
+SHELL_RC="$HOME/.zshrc"
+if ! grep -qF 'worktree-tools shell wrapper' "$SHELL_RC" 2>/dev/null; then
+  printf '\n# worktree-tools shell wrapper\nwt() { cd "$(wt-switch "$@")"; }\n' >> "$SHELL_RC"
+  echo "added wt() to $SHELL_RC — run: source $SHELL_RC"
+else
+  echo "wt() already present in $SHELL_RC"
+fi

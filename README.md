@@ -41,7 +41,11 @@ Outputs created path on stdout.
 ```bash
 wt-switch [branch-name|path] [--repo <repo-root>]
 ```
-Outputs resolved path on stdout.
+Outputs the resolved worktree path on stdout. Because a subprocess cannot change the calling shell's working directory, use the `wt` shell function (installed automatically by `install.sh`) to actually `cd` into the worktree:
+
+```bash
+wt [branch-name|path]
+```
 
 ### wt-list
 ```bash
