@@ -61,13 +61,12 @@ WORKTREE_DIR="$BRANCHES_DIR/$BRANCH_NAME"
 
 [[ -e "$MAIN_DIR/.git" ]] || die "Main worktree missing: $MAIN_DIR"
 [[ ! -e "$WORKTREE_DIR" ]] || die "Worktree path already exists: $WORKTREE_DIR"
-if git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
-  die "Branch already exists: $BRANCH_NAME"
-fi
-
-default_branch="$(git -C "$MAIN_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-default_branch="${default_branch:-main}"
-
 mkdir -p "$(dirname "$WORKTREE_DIR")"
-git -C "$BARE_DIR" worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" "$default_branch" >/dev/null
+if git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+  git -C "$BARE_DIR" worktree add "$WORKTREE_DIR" "$BRANCH_NAME" >/dev/null
+else
+  default_branch="$(git -C "$MAIN_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  default_branch="${default_branch:-main}"
+  git -C "$BARE_DIR" worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" "$default_branch" >/dev/null
+fi
 echo "$WORKTREE_DIR"
